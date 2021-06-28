@@ -1,4 +1,4 @@
-obj-m += chardev.o
+obj-m += chardriver.o
 
 KERNELDIR ?= /lib/modules/$(shell uname -r)/build
 
