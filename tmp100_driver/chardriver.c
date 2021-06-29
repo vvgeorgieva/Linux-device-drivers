@@ -18,6 +18,9 @@
 #define TMP100_LOW_REGISTER	0x02 /* Read/ Write */
 #define TMP100_HIGH_REGISTER	0x03 /* Read/ Write */
 
+/* BUFF_SIZE set to 2 => char temp[2] = 16 bits */
+#define BUFF_SIZE	2
+
 struct chardev_data {
 	dev_t devt; /* used to hold device numbers—both the major and minor parts */
 	struct cdev chardev; /*  kernel's internal structure that represents char devices */
@@ -40,6 +43,18 @@ static const struct file_operations chardev_fops = {
 	.release = chardev_release,
 	.read = chardev_read
 };
+
+/* Twobytesmustbe readto obtaindata - first 12 bits contain data the other are null */
+static ssize_t chardev_read(struct file *file, char __user *buf, size_t count, loff_t *offset) {
+	unsigned int regval; /* regmap read requires unsigned int for regval and reg */
+	int err, count;
+	s16 signed_regval;/*TODO: not sure*/
+	char temp[BUFF_SIZE] = {0};
+
+	err = regmap_read(tmp100_data.regmap, TMP100_READ_REG, &regval);
+	if (err < 0)
+		return err;
+}
 
 /* reg_bits: Number of digits in register address, mandatory must be configured
  * val_bits: Number of registry values, mandatory must be configured
