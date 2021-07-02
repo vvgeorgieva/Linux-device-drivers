@@ -20,9 +20,7 @@
 
 /* Documentation defined max resolution */
 #define RESOLUTION		16 /* Max resolution */
-
-/* BUFF_SIZE set to 2 => char temp[2] = 16 bits + 1 for sign + 1 for '\0' */
-#define BUFF_SIZE	4
+#define BUFF_SIZE		10
 
 struct chardev_data {
 	dev_t dev; /* used to hold device numbers—both the major and minor parts */
@@ -35,7 +33,9 @@ struct chardev_data {
 
 struct chardev_data chardev_data;
 
-static ssize_t chardev_read(struct file *file, char __user *buf, size_t count, loff_t *offset);
+static ssize_t chardev_read(struct file *file, char __user *buf, size_t length, loff_t *offset);
+static int i2c_tmp100_probe(struct i2c_client *, const struct i2c_device_id *);
+static int i2c_tmp100_remove(struct i2c_client *);
 
 static const struct file_operations chardev_fops = {
 	.owner = THIS_MODULE,
@@ -100,19 +100,45 @@ static s16 convert_to_mc(unsigned int regval, int resolution) {
 }
 
 /* Two bytes mustbe read to obtain data - first 12 bits contain data the other are null */
-static ssize_t chardev_read(struct file *file, char __user *buf, size_t count, loff_t *offset) {
+static ssize_t chardev_read(struct file *file, char __user *buf, size_t length, loff_t *offset) {
 	unsigned int regval; /* regmap read requires unsigned int for regval and reg */
 	s16 temp_mc;
 	int err;
 	char temp[BUFF_SIZE] = {0};
+	char sign = ' ';
 
 	err = regmap_read(chardev_data.regmap, TMP100_TEMP_REGISTER, &regval);
 	if (err < 0)
 		return err;
 
+	/* Check whether the number is positive or negative as per tmp100 Documentation if
+	 * the number is negative it will be in two's complement
+	 */
+	if(regval & (1 << (RESOLUTION - 1))) {
+		regval = ~(regval - 1); //TODO: simple test program
+		sign = '-';
+	} else {
+		sign = '+';
+	}
+
 	temp_mc = convert_to_mc(regval, RESOLUTION);
 
-	return 0;
+	/* Цялото число + остатъка до 4-я знак */
+	snprintf(temp, sizeof(temp), "%c%d.%04d\n", sign, temp_mc / 1000, temp_mc % 1000);
+	temp[BUFF_SIZE - 1] = '\0';
+
+	if (length < BUFF_SIZE)
+		return -EINVAL;
+
+	if(*offset != 0)
+		return -EINVAL;
+
+	if(copy_to_user(buf, temp, BUFF_SIZE))
+		return -EFAULT;
+
+	*offset = BUFF_SIZE;
+
+	return *offset;
 }
 
 /* reg_bits: Number of digits in register address, mandatory must be configured
@@ -125,6 +151,38 @@ static const struct regmap_config tmp100_regmap_config = {
 	.val_bits = 16,
 	.max_register = TMP100_HIGH_REGISTER,
 };
+
+static int i2c_tmp100_probe(struct i2c_client *client, const struct i2c_device_id *i2c_device_id) {
+	chardev_data.dev = 0;
+
+	chardev_data.regmap = devm_regmap_init_i2c(client, &tmp100_regmap_config);
+
+	if(IS_ERR(chardev_data.regmap))
+		return PTR_ERR(chardev_data.regmap);
+
+	if(!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
+		printk(KERN_DEBUG "I2C_FUNC_I2C not supported\n");
+		return -ENODEV;
+	}
+
+	chardev_init();
+
+	return 0;
+}
+
+static int i2c_tmp100_remove(struct i2c_client *client) {
+	/* Remove the cdev */
+	cdev_del(&chardev_data.chardev);
+	/* Release the major number */
+	unregister_chrdev_region(chardev_data.dev, 1);
+	/* Release I/O region */
+	device_destroy(chardev_data.chardev_class, chardev_data.dev);
+	 /* Destroy cmos_class */
+	class_destroy(chardev_data.chardev_class);
+
+	printk(KERN_DEBUG "Temperature Driver removed\n");
+	return 0;
+}
 
 static const struct i2c_device_id tmp100_i2c_device_id[] = {
 	{	"tmp100", 0},
@@ -147,8 +205,21 @@ static const struct of_device_id tmp100_of_match[] = {
 
 MODULE_DEVICE_TABLE(of, tmp100_of_match);
 
-module_init(chardev_init);
-module_exit(chardev_exit);
+static struct i2c_driver i2c_tmp100_driver = {
+	.driver = {
+		.name = "i2c_tmp100_driver",
+		.of_match_table = tmp100_of_match,
+		.owner = THIS_MODULE,
+	}, /* Device driver model driver */
+	.probe = i2c_tmp100_probe, /* Callback for device binding */
+	.remove = i2c_tmp100_remove, /* Callback for device unbinding */
+	.id_table = tmp100_i2c_device_id, /* List of i2c devices supported by this driver */
+};
+
+
+module_i2c_driver(i2c_tmp100_driver);
+//module_init(chardev_init);
+//module_exit(chardev_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Temperature driver using tmp100 sensor");
