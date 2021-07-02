@@ -18,11 +18,14 @@
 #define TMP100_LOW_REGISTER	0x02 /* Read/ Write */
 #define TMP100_HIGH_REGISTER	0x03 /* Read/ Write */
 
-/* BUFF_SIZE set to 2 => char temp[2] = 16 bits */
-#define BUFF_SIZE	2
+/* Documentation defined max resolution */
+#define RESOLUTION		16 /* Max resolution */
+
+/* BUFF_SIZE set to 2 => char temp[2] = 16 bits + 1 for sign + 1 for '\0' */
+#define BUFF_SIZE	4
 
 struct chardev_data {
-	dev_t devt; /* used to hold device numbers—both the major and minor parts */
+	dev_t dev; /* used to hold device numbers—both the major and minor parts */
 	struct cdev chardev; /*  kernel's internal structure that represents char devices */
 	struct regmap *regmap; /* use regmap API to factorize and unify the way to access SPI/I2C devices*/
 	struct class *chardev_class;
@@ -30,30 +33,86 @@ struct chardev_data {
 	u8 resolution;
 };
 
-static int major = 0;
 struct chardev_data chardev_data;
 
-static int chardev_open(struct inode *inode, struct file *file);
-static int chardev_release(struct inode *inode, struct file *file);
 static ssize_t chardev_read(struct file *file, char __user *buf, size_t count, loff_t *offset);
 
 static const struct file_operations chardev_fops = {
 	.owner = THIS_MODULE,
-	.open = chardev_open,
-	.release = chardev_release,
 	.read = chardev_read
 };
 
-/* Twobytesmustbe readto obtaindata - first 12 bits contain data the other are null */
+static int __init chardev_init(void) {
+
+	/* Request dynamic allocation of a device major number */
+	if (alloc_chrdev_region(&chardev_data.dev, 0, 1, MODNAME) < 0) {
+		printk(KERN_DEBUG "Can't register device\n");
+		return -1;
+	}
+	/* Populate sysfs entries */
+	chardev_data.chardev_class = create_class(THIS_MODULE, MODNAME);
+	if(chardev_data.chardev_class == NULL) {
+		printk(KERN_DEBUG "Can't create struct class\n");
+		unregister_chrdev_region(chardev_data.dev, 1);
+		return -1;
+	}
+	/* Connect the file operations with the cdev */
+	cdev_init(&chardev_data.chardev, &chardev_fops);
+	/* Connect the major/minor number to the cdev */
+	if (cdev_add(&chardev_data.chardev, chardev_data.dev, 1) < 0) {
+		printk(KERN_DEBUG "Can't add device to the system\n");
+		unregister_chrdev_region(chardev_data.dev, 1);
+		return -1;
+	}
+	/* Send uevents to udev, so it'll create /dev nodes */
+	if(device_create(chardev_data.chardev_class, NULL, chardev_data.dev, NULL, MODNAME)
+			== NULL) {
+		printk("Can't create device\n");
+		class_destroy(chardev_data.chardev_class);
+		unregister_chrdev_region(chardev_data.dev, 1);
+		return -1;
+	}
+
+	printk(KERN_DEBUG "Temperature Driver initialized\n")
+
+	return 0;
+}
+
+static void __exit chardev_exit(void) {
+	/* Remove the cdev */
+	cdev_del(&chardev_data.chardev);
+	/* Release the major number */
+	unregister_chrdev_region(chardev_data.dev, 1);
+	/* Release I/O region */
+	device_destroy(chardev_data.chardev_class, chardev_data.dev);
+	 /* Destroy cmos_class */
+	class_destroy(chardev_data.chardev_class);
+
+	printk(KERN_DEBUG "Temperature Driver removed\n")
+	return;
+}
+
+/* Documentation defined - 12 bit resolution, but two bytes should be initially read where 4 MSB are set to 0
+ * Using this function in order to escape floating point and convert C to MC which is why is * by 1000, 12 bit resolution also equals 0.0625C=>1/16=> << 4
+ */
+static s16 convert_to_mc(unsigned int regval, int resolution) {
+	return ((regval >> (16 - resolution)) * 1000) >> (resolution - 8);
+}
+
+/* Two bytes mustbe read to obtain data - first 12 bits contain data the other are null */
 static ssize_t chardev_read(struct file *file, char __user *buf, size_t count, loff_t *offset) {
 	unsigned int regval; /* regmap read requires unsigned int for regval and reg */
+	s16 temp_mc;
 	int err, count;
-	s16 signed_regval;/*TODO: not sure*/
 	char temp[BUFF_SIZE] = {0};
 
 	err = regmap_read(tmp100_data.regmap, TMP100_READ_REG, &regval);
 	if (err < 0)
 		return err;
+
+	temp_mc = convert_to_mc(regval, RESOLUTION);
+
+	return 0;
 }
 
 /* reg_bits: Number of digits in register address, mandatory must be configured
@@ -66,16 +125,6 @@ static const struct regmap_config tmp100_regmap_config = {
 	.val_bits = 16,
 	.max_register = TMP100_HIGH_REGISTER,
 };
-
-static int __init chardev_init(void) {
-	
-	return 0;
-}
-
-static void __exit chardev_exit(void) {
-
-	return;
-}
 
 static const struct i2c_device_id tmp100_i2c_device_id[] = {
 	{	"tmp100", 0},
