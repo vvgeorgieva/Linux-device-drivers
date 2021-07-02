@@ -1,9 +1,10 @@
 # **Temperature driver using TMP100 sensor for educational purposes**
 
 Used materials:
--Original driver lm75.c
--Essential Linux Device Drivers
--TI Documentation for TMP100 sensor
+
+1. Original driver lm75.c
+2. Essential Linux Device Drivers
+3. TI Documentation for TMP100 sensor
 
 How to test:
 
