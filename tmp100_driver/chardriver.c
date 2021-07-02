@@ -10,7 +10,7 @@
 #include <linux/string.h>
 #include <linux/regmap.h>
 
-#define MODNAME		TMP100
+#define MODNAME		"TMP100"
 
 /* TMP100 registers */
 #define TMP100_TEMP_REGISTER 	0x00 /* Read only */
@@ -50,7 +50,7 @@ static int __init chardev_init(void) {
 		return -1;
 	}
 	/* Populate sysfs entries */
-	chardev_data.chardev_class = create_class(THIS_MODULE, MODNAME);
+	chardev_data.chardev_class = class_create(THIS_MODULE, MODNAME);
 	if(chardev_data.chardev_class == NULL) {
 		printk(KERN_DEBUG "Can't create struct class\n");
 		unregister_chrdev_region(chardev_data.dev, 1);
@@ -73,7 +73,7 @@ static int __init chardev_init(void) {
 		return -1;
 	}
 
-	printk(KERN_DEBUG "Temperature Driver initialized\n")
+	printk(KERN_DEBUG "Temperature Driver initialized\n");
 
 	return 0;
 }
@@ -88,7 +88,7 @@ static void __exit chardev_exit(void) {
 	 /* Destroy cmos_class */
 	class_destroy(chardev_data.chardev_class);
 
-	printk(KERN_DEBUG "Temperature Driver removed\n")
+	printk(KERN_DEBUG "Temperature Driver removed\n");
 	return;
 }
 
@@ -103,10 +103,10 @@ static s16 convert_to_mc(unsigned int regval, int resolution) {
 static ssize_t chardev_read(struct file *file, char __user *buf, size_t count, loff_t *offset) {
 	unsigned int regval; /* regmap read requires unsigned int for regval and reg */
 	s16 temp_mc;
-	int err, count;
+	int err;
 	char temp[BUFF_SIZE] = {0};
 
-	err = regmap_read(tmp100_data.regmap, TMP100_READ_REG, &regval);
+	err = regmap_read(chardev_data.regmap, TMP100_TEMP_REGISTER, &regval);
 	if (err < 0)
 		return err;
 
