@@ -19,7 +19,7 @@
 #define TMP100_HIGH_REGISTER	0x03 /* Read/ Write */
 
 /* Documentation defined max resolution */
-#define RESOLUTION		16 /* Max resolution */
+#define RESOLUTION		12 /* Max resolution */
 #define BUFF_SIZE		10
 
 struct chardev_data {
@@ -115,7 +115,7 @@ static ssize_t chardev_read(struct file *file, char __user *buf, size_t length, 
 	 * the number is negative it will be in two's complement
 	 */
 	if(regval & (1 << (RESOLUTION - 1))) {
-		regval = ~(regval - 1); //TODO: simple test program
+		regval = ~(regval - 1);
 		sign = '-';
 	} else {
 		sign = '+';
@@ -123,7 +123,6 @@ static ssize_t chardev_read(struct file *file, char __user *buf, size_t length, 
 
 	temp_mc = convert_to_mc(regval, RESOLUTION);
 
-	/* Цялото число + остатъка до 4-я знак */
 	snprintf(temp, sizeof(temp), "%c%d.%04d\n", sign, temp_mc / 1000, temp_mc % 1000);
 	temp[BUFF_SIZE - 1] = '\0';
 
@@ -218,8 +217,6 @@ static struct i2c_driver i2c_tmp100_driver = {
 
 
 module_i2c_driver(i2c_tmp100_driver);
-//module_init(chardev_init);
-//module_exit(chardev_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Temperature driver using tmp100 sensor");
