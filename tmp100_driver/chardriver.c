@@ -20,7 +20,7 @@
 
 /* Documentation defined max resolution */
 #define RESOLUTION		12 /* Max resolution */
-#define BUFF_SIZE		6
+#define BUFF_SIZE		10
 
 struct chardev_data {
 	dev_t dev; /* used to hold device numbers—both the major and minor parts */
